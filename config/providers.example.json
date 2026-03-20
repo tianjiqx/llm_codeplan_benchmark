@@ -1,0 +1,30 @@
+{
+  "providers": {
+    "bailian-coding-plan": {
+      "apiKey": "YOUR_BAILIAN_API_KEY_HERE",
+      "models": [
+        "qwen3.5-plus",
+        "glm-5"
+      ]
+    },
+    "volcengine": {
+      "apiKey": "YOUR_VOLCENGINE_API_KEY_HERE",
+      "models": [
+        "glm-4.7",
+        "deepseek-v3.2"
+      ]
+    },
+    "glm-codeplan": {
+      "apiKey": "YOUR_ZHIPU_API_KEY_HERE",
+      "models": [
+        "glm-4.7",
+        "glm-4.5-air"
+      ]
+    }
+  },
+  "test": {
+    "concurrencyLevels": [1, 2, 5, 10],
+    "timeout": 120000,
+    "repetitions": 1
+  }
+}
