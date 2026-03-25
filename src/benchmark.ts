@@ -8,6 +8,7 @@ import { bailianConfig } from "./providers/bailian";
 import { volcengineConfig } from "./providers/volcengine";
 import { glmCodeplanConfig } from "./providers/glm-codeplan";
 import { generateMarkdownReport } from "./utils";
+import { getEnabledModelsFromConfig } from "./config";
 import type { TPSResult, ConcurrentResult, BenchmarkReport, ProviderConfig } from "./types";
 import { writeFileSync, mkdirSync, existsSync } from "fs";
 import { join } from "path";
@@ -30,6 +31,46 @@ function estimateTokens(text: string): number {
   const chineseChars = (text.match(/[\u4e00-\u9fa5]/g) || []).length;
   const otherChars = text.length - chineseChars;
   return Math.ceil(chineseChars * 1.5 + otherChars / 4);
+}
+
+function extractErrorMessage(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  
+  const msg = error.message;
+  const errName = (error as Error).name;
+  
+  // AI_SDK 包装错误：流中没有输出，通常是因为服务端错误或限流
+  if (errName === 'AI_NoOutputGeneratedError') {
+    return "限流或服务端错误：请稍后重试";
+  }
+  
+  // 处理速率限制错误 - 从 "message":"xxx" 提取中文错误
+  const chineseErrorMatch = msg.match(/"message":\s*"([^"]*[\u4e00-\u9fa5]+[^"]*)"/);
+  if (chineseErrorMatch) {
+    return `限流: ${chineseErrorMatch[1]}`;
+  }
+  
+  // 处理速率限制错误 - 从 value.error.message 提取
+  const valueErrorMatch = msg.match(/"value":\s*\{[^}]*"error":\s*\{[^}]*"message":\s*"([^"]+)"/);
+  if (valueErrorMatch) {
+    return valueErrorMatch[1];
+  }
+  
+  // 处理其他 API 错误
+  const errorMatch = msg.match(/"error":\s*\{[^}]*"message":\s*"([^"]+)"/);
+  if (errorMatch) return errorMatch[1];
+  
+  // 处理 ZodError / TypeValidationError
+  if (msg.includes("ZodError") || msg.includes("TypeValidationError")) {
+    return "限流或服务端错误";
+  }
+  
+  // 截断长消息
+  if (msg.length > 100) {
+    return msg.slice(0, 100) + "...";
+  }
+  
+  return msg;
 }
 
 function parseArgs() {
@@ -137,7 +178,7 @@ async function measureTPS(
       promptType,
       ttft: 0, totalTime: 0, generationTime: 0, inputTokens: 0, outputTokens: 0, tps: 0, totalTps: 0,
       success: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: extractErrorMessage(error),
       timestamp: getBeijingTime(),
     };
   }
@@ -173,6 +214,7 @@ async function runConcurrentTest(
       avgTps: 0,
       rps: 0,
       totalTestTime: 0,
+      errors: [extractErrorMessage(error)],
       requestDetails: [],
       timestamp: getBeijingTime(),
     };
@@ -222,7 +264,7 @@ async function runConcurrentTest(
         modelId,
         success: false,
         totalTime: Math.round(performance.now() - startTime),
-        error: error instanceof Error ? error.message : String(error),
+        error: extractErrorMessage(error),
       };
     }
   }
@@ -232,6 +274,9 @@ async function runConcurrentTest(
   const totalTestTime = performance.now() - testStartTime;
 
   const successfulRequests = results.filter(r => r.success);
+  const failedRequestList = results.filter(r => !r.success);
+  const errors = [...new Set(failedRequestList.map(r => r.error || "Unknown error"))];
+
   const successRate = (successfulRequests.length / concurrency) * 100;
   const responseTimes = successfulRequests.map(r => r.totalTime);
   const tpsValues = successfulRequests.map(r => r.tps || 0);
@@ -252,7 +297,7 @@ async function runConcurrentTest(
     concurrency,
     totalRequests: concurrency,
     successfulRequests: successfulRequests.length,
-    failedRequests: results.filter(r => !r.success).length,
+    failedRequests: failedRequestList.length,
     successRate: Math.round(successRate * 10) / 10,
     avgResponseTime: Math.round(avgResponseTime),
     minResponseTime: responseTimes.length > 0 ? Math.min(...responseTimes) : 0,
@@ -260,6 +305,7 @@ async function runConcurrentTest(
     avgTps: Math.round(avgTps * 100) / 100,
     rps: Math.round(rps * 100) / 100,
     totalTestTime: Math.round(totalTestTime),
+    errors,
     requestDetails: results,
     timestamp: getBeijingTime(),
   };
@@ -294,9 +340,13 @@ async function runBenchmark() {
     console.log("📊 Running TPS Tests...\n");
 
     for (const { config } of filteredProviders) {
+      // 优先使用用户配置的模型列表，否则使用提供商默认模型
+      const configModels = getEnabledModelsFromConfig(config.id);
       const models = filterModel
         ? config.models.filter(m => m.id === filterModel)
-        : config.models;
+        : configModels
+          ? config.models.filter(m => configModels.includes(m.id))
+          : config.models;
 
       for (const model of models) {
         console.log(`Testing: ${config.name} / ${model.name}`);
@@ -328,9 +378,12 @@ async function runBenchmark() {
     console.log("\n📊 Running Concurrent Tests...\n");
 
     for (const { config } of filteredProviders) {
+      const configModels = getEnabledModelsFromConfig(config.id);
       const models = filterModel
         ? config.models.filter(m => m.id === filterModel)
-        : config.models.slice(0, 2);
+        : configModels
+          ? config.models.filter(m => configModels.includes(m.id))
+          : config.models.slice(0, 2);
 
       for (const model of models) {
         console.log(`Testing: ${config.name} / ${model.name}`);

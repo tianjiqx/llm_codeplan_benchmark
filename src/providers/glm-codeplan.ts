@@ -6,7 +6,7 @@ export const glmCodeplanConfig: ProviderConfig = {
   id: "glm-codeplan",
   name: "GLM Code Plan",
   npm: "anthropic",
-  baseURL: "https://open.bigmodel.cn/api/anthropic",
+  baseURL: "https://open.bigmodel.cn/api/anthropic/v1",
   apiKey: "",
   models: [
     { id: "glm-4.7", name: "GLM-4.7 (Opus/Sonnet)", enabled: true },

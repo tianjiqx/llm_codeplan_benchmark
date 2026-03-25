@@ -77,18 +77,20 @@ export interface ConcurrentResult {
   failedRequests: number;
   /** 成功率 (%) */
   successRate: number;
-  /** 平均响应时间 (ms) */
+  /** 平均响应时间 (ms) - 仅成功请求 */
   avgResponseTime: number;
-  /** 最小响应时间 (ms) */
+  /** 最小响应时间 (ms) - 仅成功请求 */
   minResponseTime: number;
-  /** 最大响应时间 (ms) */
+  /** 最大响应时间 (ms) - 仅成功请求 */
   maxResponseTime: number;
-  /** 平均 TPS */
+  /** 平均 TPS - 仅成功请求 */
   avgTps: number;
   /** 请求/秒 */
   rps: number;
   /** 总测试时间 (ms) */
   totalTestTime: number;
+  /** 失败请求的错误信息列表 */
+  errors: string[];
   /** 各请求详情 */
   requestDetails: RequestResult[];
   /** 测试时间戳 */

@@ -145,17 +145,20 @@ export function generateMarkdownReport(report: BenchmarkReport): string {
       for (const [promptType, promptResults] of Object.entries(byPromptType)) {
         lines.push(`#### ${promptType === "simple" ? "简单" : "复杂"} Prompt`, ``);
         lines.push(
-          `| 模型 | 并发数 | 成功率 | 平均响应 | 最小响应 | 最大响应 | 平均 TPS | RPS |`
+          `| 模型 | 并发数 | 成功率 | 平均响应 | 最小响应 | 最大响应 | 平均 TPS | RPS | 错误 |`
         );
         lines.push(
-          `|------|--------|--------|----------|----------|----------|----------|-----|`
+          `|------|--------|--------|----------|----------|----------|----------|-----|------|`
         );
 
         for (const r of promptResults) {
+          const errorInfo = r.errors.length > 0 
+            ? r.errors.map(e => e.length > 50 ? e.slice(0, 50) + "..." : e).join("; ")
+            : "-";
           lines.push(
             `| ${r.modelName} | ${r.concurrency} | ${r.successRate.toFixed(1)}% | ` +
             `${formatTime(r.avgResponseTime)} | ${formatTime(r.minResponseTime)} | ` +
-            `${formatTime(r.maxResponseTime)} | ${formatTps(r.avgTps)} | ${r.rps.toFixed(2)} |`
+            `${formatTime(r.maxResponseTime)} | ${formatTps(r.avgTps)} | ${r.rps.toFixed(2)} | ${errorInfo} |`
           );
         }
         lines.push(``);
