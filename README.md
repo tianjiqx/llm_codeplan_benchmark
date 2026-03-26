@@ -128,6 +128,8 @@ bun run src/benchmark.ts [options]
 - `deepseek-v3.2` - DeepSeek V3.2
 - `kimi-k2.5` - Kimi K2.5
 - `minimax-m2.5` - MiniMax M2.5
+- `doubao-seed-2.0-pro` - Doubao-Seed-2.0-Pro
+- `doubao-seed-2.0-code` - Doubao-Seed-2.0-Code
 
 **GLM Code Plan (`glm-codeplan`)：**
 - `glm-4.7` - GLM-4.7（对应 Claude Opus/Sonnet）

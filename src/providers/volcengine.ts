@@ -13,6 +13,8 @@ export const volcengineConfig: ProviderConfig = {
     { id: "deepseek-v3.2", name: "DeepSeek V3.2", enabled: true },
     { id: "kimi-k2.5", name: "Kimi K2.5", enabled: true },
     { id: "minimax-m2.5", name: "MiniMax M2.5", enabled: true },
+    { id: "doubao-seed-2.0-pro", name: "Doubao-Seed-2.0-Pro", enabled: true },
+    { id: "doubao-seed-2.0-code", name: "Doubao-Seed-2.0-Code", enabled: true },
   ],
 };
 
