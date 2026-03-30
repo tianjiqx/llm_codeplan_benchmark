@@ -49,6 +49,39 @@ export interface TPSResult {
   timestamp: string;
 }
 
+/** 多次运行 TPS 汇总结果 */
+export interface AggregatedTPSResult {
+  providerId: string;
+  providerName: string;
+  modelId: string;
+  modelName: string;
+  promptType: "simple" | "complex";
+  /** 运行次数 */
+  runs: number;
+  /** 成功次数 */
+  successfulRuns: number;
+  /** 首 token 延迟统计 */
+  ttft: StatisticsSummary;
+  /** 总时间统计 */
+  totalTime: StatisticsSummary;
+  /** 生成时间统计 */
+  generationTime: StatisticsSummary;
+  /** 输出 tokens 统计 */
+  outputTokens: StatisticsSummary;
+  /** 生成 TPS 统计 */
+  tps: StatisticsSummary;
+  /** 端到端 TPS 统计 */
+  totalTps: StatisticsSummary;
+  /** 整体是否成功 */
+  success: boolean;
+  /** 错误信息列表 */
+  errors: string[];
+  /** 原始单次结果 */
+  rawResults: TPSResult[];
+  /** 测试时间戳 */
+  timestamp: string;
+}
+
 /** 单次请求结果 */
 export interface RequestResult {
   providerId: string;
@@ -97,6 +130,38 @@ export interface ConcurrentResult {
   timestamp: string;
 }
 
+/** 多次运行并发测试汇总结果 */
+export interface AggregatedConcurrentResult {
+  providerId: string;
+  providerName: string;
+  modelId: string;
+  modelName: string;
+  promptType: "simple" | "complex";
+  concurrency: number;
+  /** 运行次数 */
+  runs: number;
+  /** 成功次数 */
+  successfulRuns: number;
+  /** 总请求数统计 */
+  totalRequests: number;
+  /** 成功率统计 */
+  successRate: StatisticsSummary;
+  /** 平均响应时间统计 */
+  avgResponseTime: StatisticsSummary;
+  /** 平均 TPS 统计 */
+  avgTps: StatisticsSummary;
+  /** RPS 统计 */
+  rps: StatisticsSummary;
+  /** 整体是否成功 */
+  success: boolean;
+  /** 错误信息列表 */
+  errors: string[];
+  /** 原始单次结果 */
+  rawResults: ConcurrentResult[];
+  /** 测试时间戳 */
+  timestamp: string;
+}
+
 /** 基准测试报告 */
 export interface BenchmarkReport {
   /** 报告生成时间 */
@@ -105,11 +170,16 @@ export interface BenchmarkReport {
   tpsResults: TPSResult[];
   /** 并发测试结果 */
   concurrentResults: ConcurrentResult[];
+  /** TPS 汇总结果（多次运行） */
+  aggregatedTPSResults?: AggregatedTPSResult[];
+  /** 并发测试汇总结果（多次运行） */
+  aggregatedConcurrentResults?: AggregatedConcurrentResult[];
   /** 测试配置 */
   config: {
     concurrencyLevels: number[];
     promptTypes: ("simple" | "complex")[];
     timeout: number;
+    repetitions: number;
   };
 }
 

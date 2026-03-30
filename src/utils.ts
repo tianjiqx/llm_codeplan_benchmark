@@ -2,7 +2,7 @@
  * 工具函数
  */
 
-import type { StatisticsSummary, TPSResult, ConcurrentResult, BenchmarkReport } from "./types";
+import type { StatisticsSummary, TPSResult, ConcurrentResult, BenchmarkReport, AggregatedTPSResult, AggregatedConcurrentResult } from "./types";
 
 /**
  * 计算统计数据
@@ -97,14 +97,42 @@ export function generateMarkdownReport(report: BenchmarkReport): string {
     `- 并发级别: ${report.config.concurrencyLevels.join(", ")}`,
     `- Prompt 类型: ${report.config.promptTypes.join(", ")}`,
     `- 超时时间: ${report.config.timeout}ms`,
+    `- 重复次数: ${report.config.repetitions}`,
     ``,
   ];
 
-  // TPS 测试结果
-  if (report.tpsResults.length > 0) {
+  // 优先使用汇总结果（多次运行）
+  if (report.aggregatedTPSResults && report.aggregatedTPSResults.length > 0) {
+    lines.push(`## TPS 测试结果 (${report.config.repetitions} 次运行平均)`, ``);
+
+    const grouped = groupBy(report.aggregatedTPSResults, r => `${r.providerName}|${r.promptType}`);
+
+    for (const [key, results] of Object.entries(grouped)) {
+      const [providerName, promptType] = key.split("|");
+      lines.push(`### ${providerName} - ${promptType === "simple" ? "简单" : "复杂"} Prompt`, ``);
+      lines.push(`| 模型 | TTFT | 总时间 | 生成 TPS | 端到端 TPS | 成功/运行 |`);
+      lines.push(`|------|------|--------|----------|------------|-----------|`);
+
+      for (const r of results) {
+        const successInfo = `${r.successfulRuns}/${r.runs}`;
+        if (r.success) {
+          lines.push(
+            `| ${r.modelName} | ` +
+            `${formatStats(r.ttft)} | ` +
+            `${formatStats(r.totalTime)} | ` +
+            `${formatTpsStats(r.tps)} | ` +
+            `${formatTpsStats(r.totalTps)} | ` +
+            `${successInfo} |`
+          );
+        } else {
+          lines.push(`| ${r.modelName} | - | - | - | - | ${successInfo} ❌ |`);
+        }
+      }
+      lines.push(``);
+    }
+  } else if (report.tpsResults.length > 0) {
     lines.push(`## TPS 测试结果`, ``);
 
-    // 按提供商和 prompt 类型分组
     const grouped = groupBy(report.tpsResults, r => `${r.providerName}|${r.promptType}`);
 
     for (const [key, results] of Object.entries(grouped)) {
@@ -129,17 +157,48 @@ export function generateMarkdownReport(report: BenchmarkReport): string {
     }
   }
 
-  // 并发测试结果
-  if (report.concurrentResults.length > 0) {
+  // 并发测试汇总结果
+  if (report.aggregatedConcurrentResults && report.aggregatedConcurrentResults.length > 0) {
+    lines.push(`## 并发测试结果 (${report.config.repetitions} 次运行平均)`, ``);
+
+    const byProvider = groupBy(report.aggregatedConcurrentResults, r => r.providerName);
+
+    for (const [providerName, results] of Object.entries(byProvider)) {
+      lines.push(`### ${providerName}`, ``);
+
+      const byPromptType = groupBy(results, r => r.promptType);
+
+      for (const [promptType, promptResults] of Object.entries(byPromptType)) {
+        lines.push(`#### ${promptType === "simple" ? "简单" : "复杂"} Prompt`, ``);
+        lines.push(`| 模型 | 并发数 | 成功率 | 平均响应 | 平均 TPS | RPS | 成功/运行 |`);
+        lines.push(`|------|--------|--------|----------|----------|-----|-----------|`);
+
+        for (const r of promptResults) {
+          const successInfo = `${r.successfulRuns}/${r.runs}`;
+          if (r.success) {
+            lines.push(
+              `| ${r.modelName} | ${r.concurrency} | ` +
+              `${r.successRate.mean.toFixed(1)}% | ` +
+              `${formatStats(r.avgResponseTime)} | ` +
+              `${formatTpsStats(r.avgTps)} | ` +
+              `${formatStats(r.rps)} | ` +
+              `${successInfo} |`
+            );
+          } else {
+            lines.push(`| ${r.modelName} | ${r.concurrency} | - | - | - | - | ${successInfo} ❌ |`);
+          }
+        }
+        lines.push(``);
+      }
+    }
+  } else if (report.concurrentResults.length > 0) {
     lines.push(`## 并发测试结果`, ``);
 
-    // 按提供商分组
     const byProvider = groupBy(report.concurrentResults, r => r.providerName);
 
     for (const [providerName, results] of Object.entries(byProvider)) {
       lines.push(`### ${providerName}`, ``);
 
-      // 按 prompt 类型分组
       const byPromptType = groupBy(results, r => r.promptType);
 
       for (const [promptType, promptResults] of Object.entries(byPromptType)) {
@@ -167,6 +226,14 @@ export function generateMarkdownReport(report: BenchmarkReport): string {
   }
 
   return lines.join("\n");
+}
+
+function formatStats(stats: StatisticsSummary): string {
+  return `${(stats.mean / 1000).toFixed(2)}s (±${(stats.stdDev / 1000).toFixed(2)}s)`;
+}
+
+function formatTpsStats(stats: StatisticsSummary): string {
+  return `${stats.mean.toFixed(2)} (±${stats.stdDev.toFixed(2)}) tok/s`;
 }
 
 /**

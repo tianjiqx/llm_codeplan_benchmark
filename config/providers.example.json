@@ -25,6 +25,6 @@
   "test": {
     "concurrencyLevels": [1, 2, 5, 10],
     "timeout": 120000,
-    "repetitions": 1
+    "repetitions": 3
   }
 }

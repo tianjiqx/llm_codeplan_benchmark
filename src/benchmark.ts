@@ -8,8 +8,10 @@ import { bailianConfig } from "./providers/bailian";
 import { volcengineConfig } from "./providers/volcengine";
 import { glmCodeplanConfig } from "./providers/glm-codeplan";
 import { generateMarkdownReport } from "./utils";
-import { getEnabledModelsFromConfig } from "./config";
-import type { TPSResult, ConcurrentResult, BenchmarkReport, ProviderConfig } from "./types";
+import { getEnabledModelsFromConfig, getTestConfig } from "./config";
+import type { TPSResult, ConcurrentResult, BenchmarkReport, ProviderConfig, AggregatedTPSResult, AggregatedConcurrentResult } from "./types";
+import { calculateStatistics } from "./utils";
+import type { StatisticsSummary } from "./types";
 import { writeFileSync, mkdirSync, existsSync } from "fs";
 import { join } from "path";
 
@@ -71,6 +73,62 @@ function extractErrorMessage(error: unknown): string {
   }
   
   return msg;
+}
+
+function aggregateTPSResults(results: TPSResult[]): AggregatedTPSResult {
+  const successfulResults = results.filter(r => r.success);
+  const failedResults = results.filter(r => !r.success);
+  const errors = [...new Set(failedResults.map(r => r.error || "Unknown error"))];
+  
+  const first = results[0];
+  
+  return {
+    providerId: first.providerId,
+    providerName: first.providerName,
+    modelId: first.modelId,
+    modelName: first.modelName,
+    promptType: first.promptType,
+    runs: results.length,
+    successfulRuns: successfulResults.length,
+    ttft: calculateStatistics(successfulResults.map(r => r.ttft)),
+    totalTime: calculateStatistics(successfulResults.map(r => r.totalTime)),
+    generationTime: calculateStatistics(successfulResults.map(r => r.generationTime)),
+    outputTokens: calculateStatistics(successfulResults.map(r => r.outputTokens)),
+    tps: calculateStatistics(successfulResults.map(r => r.tps)),
+    totalTps: calculateStatistics(successfulResults.map(r => r.totalTps)),
+    success: successfulResults.length > 0,
+    errors,
+    rawResults: results,
+    timestamp: getBeijingTime(),
+  };
+}
+
+function aggregateConcurrentResults(results: ConcurrentResult[]): AggregatedConcurrentResult {
+  const successfulResults = results.filter(r => r.successRate > 0);
+  const failedResults = results.filter(r => r.successRate === 0);
+  const errors = [...new Set(failedResults.flatMap(r => r.errors))];
+  
+  const first = results[0];
+  
+  return {
+    providerId: first.providerId,
+    providerName: first.providerName,
+    modelId: first.modelId,
+    modelName: first.modelName,
+    promptType: first.promptType,
+    concurrency: first.concurrency,
+    runs: results.length,
+    successfulRuns: successfulResults.length,
+    totalRequests: first.totalRequests,
+    successRate: calculateStatistics(results.map(r => r.successRate)),
+    avgResponseTime: calculateStatistics(successfulResults.map(r => r.avgResponseTime)),
+    avgTps: calculateStatistics(successfulResults.map(r => r.avgTps)),
+    rps: calculateStatistics(results.map(r => r.rps)),
+    success: successfulResults.length > 0,
+    errors,
+    rawResults: results,
+    timestamp: getBeijingTime(),
+  };
 }
 
 function parseArgs() {
@@ -313,9 +371,12 @@ async function runConcurrentTest(
 
 async function runBenchmark() {
   const { mode, provider: filterProvider, model: filterModel } = parseArgs();
+  const testConfig = getTestConfig();
+  const repetitions = testConfig.repetitions || 3;
 
   console.log("\n🚀 LLM CodePlan Benchmark\n");
   console.log(`Mode: ${mode}`);
+  console.log(`Repetitions: ${repetitions}`);
   console.log(`Timestamp: ${getBeijingTime()}\n`);
 
   const resultsDir = join(process.cwd(), "results");
@@ -325,6 +386,8 @@ async function runBenchmark() {
 
   const tpsResults: TPSResult[] = [];
   const concurrentResults: ConcurrentResult[] = [];
+  const aggregatedTPSResults: AggregatedTPSResult[] = [];
+  const aggregatedConcurrentResults: AggregatedConcurrentResult[] = [];
 
   const providers = [
     { config: bailianConfig, create: createBailianProvider },
@@ -340,7 +403,6 @@ async function runBenchmark() {
     console.log("📊 Running TPS Tests...\n");
 
     for (const { config } of filteredProviders) {
-      // 优先使用用户配置的模型列表，否则使用提供商默认模型
       const configModels = getEnabledModelsFromConfig(config.id);
       const models = filterModel
         ? config.models.filter(m => m.id === filterModel)
@@ -352,22 +414,34 @@ async function runBenchmark() {
         console.log(`Testing: ${config.name} / ${model.name}`);
 
         for (const promptType of ["simple", "complex"] as const) {
-          const result = await measureTPS(config.id, model.id, promptType);
-          tpsResults.push(result);
+          const runResults: TPSResult[] = [];
+          
+          for (let run = 1; run <= repetitions; run++) {
+            const result = await measureTPS(config.id, model.id, promptType);
+            runResults.push(result);
+            tpsResults.push(result);
 
-          if (result.success) {
-            const totalSec = (result.totalTime / 1000).toFixed(2);
-            const ttftSec = (result.ttft / 1000).toFixed(2);
+            if (result.success) {
+              console.log(
+                `  ✅ ${promptType} [${run}/${repetitions}]: ` +
+                `TTFT=${(result.ttft / 1000).toFixed(2)}s, ` +
+                `TPS=${result.tps} tok/s`
+              );
+            } else {
+              console.log(`  ❌ ${promptType} [${run}/${repetitions}]: ${result.error}`);
+            }
+          }
+
+          // 汇总多次运行结果
+          const aggregated = aggregateTPSResults(runResults);
+          aggregatedTPSResults.push(aggregated);
+          
+          if (aggregated.success) {
             console.log(
-              `  ✅ ${promptType}: ` +
-              `TTFT=${ttftSec}s, ` +
-              `总时间=${totalSec}s, ` +
-              `tokens=${result.outputTokens}, ` +
-              `生成TPS=${result.tps} tok/s, ` +
-              `总TPS=${result.totalTps} tok/s`
+              `  📊 ${promptType} 平均: ` +
+              `TTFT=${(aggregated.ttft.mean / 1000).toFixed(2)}s (±${(aggregated.ttft.stdDev / 1000).toFixed(2)}s), ` +
+              `TPS=${aggregated.tps.mean.toFixed(2)} tok/s (±${aggregated.tps.stdDev.toFixed(2)})`
             );
-          } else {
-            console.log(`  ❌ ${promptType}: ${result.error}`);
           }
         }
       }
@@ -389,13 +463,28 @@ async function runBenchmark() {
         console.log(`Testing: ${config.name} / ${model.name}`);
 
         for (const concurrency of CONCURRENCY_LEVELS) {
-          const result = await runConcurrentTest(config.id, model.id, concurrency, "simple");
-          concurrentResults.push(result);
+          const runResults: ConcurrentResult[] = [];
+          
+          for (let run = 1; run <= repetitions; run++) {
+            const result = await runConcurrentTest(config.id, model.id, concurrency, "simple");
+            runResults.push(result);
+            concurrentResults.push(result);
 
+            console.log(
+              `  Concurrency ${concurrency} [${run}/${repetitions}]: ` +
+              `${result.successfulRequests}/${result.totalRequests} success, ` +
+              `RPS=${result.rps}`
+            );
+          }
+
+          // 汇总多次运行结果
+          const aggregated = aggregateConcurrentResults(runResults);
+          aggregatedConcurrentResults.push(aggregated);
+          
           console.log(
-            `  Concurrency ${concurrency}: ` +
-            `${result.successfulRequests}/${result.totalRequests} success, ` +
-            `RPS=${result.rps}, avgTPS=${result.avgTps}`
+            `  📊 Concurrency ${concurrency} 平均: ` +
+            `成功率=${aggregated.successRate.mean.toFixed(1)}%, ` +
+            `RPS=${aggregated.rps.mean.toFixed(2)} (±${aggregated.rps.stdDev.toFixed(2)})`
           );
         }
       }
@@ -406,10 +495,13 @@ async function runBenchmark() {
     generatedAt: getBeijingTime(),
     tpsResults,
     concurrentResults,
+    aggregatedTPSResults,
+    aggregatedConcurrentResults,
     config: {
       concurrencyLevels: CONCURRENCY_LEVELS,
       promptTypes: ["simple", "complex"],
       timeout: 120000,
+      repetitions,
     },
   };
 
@@ -425,8 +517,9 @@ async function runBenchmark() {
   console.log(`📄 Latest Report: ${mdLatestPath}\n`);
 
   console.log("📈 Summary:");
-  console.log(`   TPS Tests: ${tpsResults.filter(r => r.success).length}/${tpsResults.length} passed`);
-  console.log(`   Concurrent Tests: ${concurrentResults.length} completed\n`);
+  const successTPS = aggregatedTPSResults.filter(r => r.success).length;
+  console.log(`   TPS Tests: ${successTPS}/${aggregatedTPSResults.length} models passed (${repetitions} runs each)`);
+  console.log(`   Concurrent Tests: ${aggregatedConcurrentResults.length} configs tested (${repetitions} runs each)\n`);
 }
 
 runBenchmark().catch(console.error);
