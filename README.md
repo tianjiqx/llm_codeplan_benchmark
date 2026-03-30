@@ -132,6 +132,7 @@ bun run src/benchmark.ts [options]
 - `doubao-seed-2.0-code` - Doubao-Seed-2.0-Code
 
 **GLM Code Plan (`glm-codeplan`)：**
+- `glm-5.1` - GLM-5.1
 - `glm-4.7` - GLM-4.7（对应 Claude Opus/Sonnet）
 - `glm-4.5-air` - GLM-4.5-Air（对应 Claude Haiku）
 - `glm-4-plus` - GLM-4 Plus
